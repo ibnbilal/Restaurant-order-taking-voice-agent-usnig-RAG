@@ -1,0 +1,484 @@
+{
+  "name": "AI voice order taking agent for restaurants using RAG",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "brim",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -160,
+        432
+      ],
+      "id": "3db8d85e-8fdd-45c9-a4f6-b173f9e18f47",
+      "name": "Webhook",
+      "webhookId": "853d0ed8-00fb-441e-9569-b879427115aa"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=user question: {{ $json.user_question }} \ncustomer order: {{ $json.what_to_order }}\ncustomer name: {{ $json.name }}\nhome address: {{ $json.address }}\ncontact number: {{ $json.phone }}\nspecial info: {{ $json.special_info }}",
+        "options": {
+          "systemMessage": "You are an AI assistant for a restaurant order system.\n\nYou have access to a PDF menu through RAG, so if the user asks for information about the menu — like item names, prices, or details — use that PDF to answer accurately.\n\nIf the user has already completed a call with the voice assistant and provided their name, phone number, and the items they want to order, Your job is to:\n\nUnderstand the user's order\n\nValidate that the items exist in the menu. if there is no exact match, use the one with the most similar name. mention this name specifically so the customer can confirm.\n\nSummarize the order in a short message\n\nBe polite and concise\nDo not ask the user more questions\nAt the end, create a summary message in simple text. it has to be sent as a string.\n\nDo not explain how the system works or mention AI.\nOnly focus on returning a natural, useful confirmation\n\n\nOrder Finalization & Notification Protocol\n\nObjective: Process the captured order data, verify against the retrieved menu context, and generate a final confirmation.\n\nStep 1: Validation\nCross-reference the user’s requested items against the provided Menu RAG data.\nIf an item is a near-match (e.g., \"Classic Burger\" vs \"The Classic Brim\"), map it to the exact menu name.\nCalculate the total cost in PKR based on the retrieved prices.\n\nStep 2: Output Constraints\nTone: Professional, welcoming, and efficient.\nConciseness: Do not engage in small talk. Do not ask follow-up questions or offer additional items. The conversation is now concluded.\nPrivacy: Handle the name and phone number as strictly functional data for the order record.\n\nStep 3: The Confirmation Message\nConstruct a natural summary using the following structure:\nGreeting: Acknowledge the user by name.\nOrder Summary: List the specific items and their verified prices.\nTotal: State the final order total in PKR (inclusive of tax).\nClosing: A friendly sign-off indicating the order has been sent to the kitchen.\n\nStrict Directive: Do not mention internal processes, database lookups, or AI limitations. Present the information as a completed transaction.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        320,
+        224
+      ],
+      "id": "8a8fbfcf-eb20-4b0f-b408-c9aa7098f07f",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        288,
+        448
+      ],
+      "id": "368dc72e-a634-4cb6-991b-05c22600c059",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "r58TxmXLFEXTr6FE",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ADDED: Phone formatter helper function (placed at the top)\nfunction formatPhoneNumber(raw, defaultCountry = 'PK') {\n  const COUNTRY_CODES = {\n    PK: '92',\n    US: '1',\n    UK: '44',\n    IN: '91',\n    AE: '971',\n    CA: '1',\n    AU: '61'\n  };\n\n  if (!raw) return null;\n\n  let cleaned = String(raw).replace(/[^\\d+]/g, '');\n\n  if (cleaned.startsWith('+')) return cleaned;\n\n  if (cleaned.startsWith('0')) {\n    cleaned = cleaned.substring(1);\n  }\n\n  const code = COUNTRY_CODES[defaultCountry] || '92';\n\n  if (cleaned.startsWith(code)) {\n    return '+' + cleaned;\n  }\n\n  return '+' + code + cleaned;\n}\n\n// 1. Grab the array of tool calls from the incoming webhook\nconst toolCalls = $input.item.json.body.message.toolCalls;\n\n// 2. Map through each call to clean up the \"arguments\"\nconst cleanedData = toolCalls.map(call => {\n  let args = call.function.arguments;\n\n  // If arguments are a string, parse them into a real JSON object\n  if (typeof args === 'string') {\n    try {\n      args = JSON.parse(args);\n    } catch (e) {\n      args = { error: \"Could not parse arguments\" };\n    }\n  }\n\n  // ADDED: Phone cleaning logic (after parsing arguments)\n  if (args.phone) {\n    args.phone = formatPhoneNumber(args.phone);\n  }\n\n  return {\n    toolCallId: call.id,\n    functionName: call.function.name,\n    ...args\n  };\n});\n\n// 3. Return the cleaned list back to n8n\nreturn cleanedData;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        432
+      ],
+      "id": "19fc4d1f-3a93-46e0-90b2-e8d66958677e",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "1U9huRP0QqydHCNPWJp2bzPuRDQcmNxhVf1nDMuo_Yi4",
+          "mode": "list",
+          "cachedResultName": "menu",
+          "cachedResultUrl": "https://docs.google.com/document/d/1U9huRP0QqydHCNPWJp2bzPuRDQcmNxhVf1nDMuo_Yi4/edit?usp=drivesdk"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        64,
+        864
+      ],
+      "id": "2c868650-b080-445d-8b60-7cc1d2fc087d",
+      "name": "Download file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "d8Qhjjv5yWn43BGX",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "panthe-n8n",
+          "mode": "list",
+          "cachedResultName": "panthe-n8n"
+        },
+        "options": {
+          "pineconeNamespace": "menu and rate"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.3,
+      "position": [
+        320,
+        864
+      ],
+      "id": "fcec1663-cb05-4318-bb45-251ff94292f6",
+      "name": "Pinecone Vector Store"
+    },
+    {
+      "parameters": {
+        "options": {
+          "dimensions": 1536
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        288,
+        1088
+      ],
+      "id": "c04d998a-d329-437f-ab49-7ca98ab5b11a",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "r58TxmXLFEXTr6FE",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        416,
+        1088
+      ],
+      "id": "4de1a2e8-2626-4482-920d-ba5a393ae529",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        496,
+        1296
+      ],
+      "id": "b3fde2db-1ed1-4914-a4f6-302fc5a270f8",
+      "name": "Recursive Character Text Splitter"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        864
+      ],
+      "id": "9df22df6-33f2-45cb-9ab7-76a5bca78147",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "This tool searches the official Brim Burger database for menu items, current prices in PKR, and specific ingredient lists. Use this to answer customer inquiries about food allergies, price comparisons, or descriptions of signature burgers and sides. It provides the most up-to-date information from the internal product documentation. ",
+        "pineconeIndex": {
+          "__rl": true,
+          "value": "panthe-n8n",
+          "mode": "list",
+          "cachedResultName": "panthe-n8n"
+        },
+        "options": {
+          "pineconeNamespace": "menu and rate"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePinecone",
+      "typeVersion": 1.3,
+      "position": [
+        416,
+        448
+      ],
+      "id": "99e485bb-c079-4050-9d16-53e5eb578013",
+      "name": "Pinecone Vector Store1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        496,
+        656
+      ],
+      "id": "98e726bc-fd65-4152-8264-82a274238585",
+      "name": "Embeddings OpenAI1",
+      "credentials": {
+        "openAiApi": {
+          "id": "r58TxmXLFEXTr6FE",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"results\": [\n    {\n      \"toolCallId\": \"{{ $node['Webhook'].json.body.message.toolCalls[0].id }}\",\n      \"result\": \"{{ JSON.stringify($('AI Agent').item.json.output).slice(1, -1) }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1008,
+        624
+      ],
+      "id": "112d301d-04cc-4e4d-8f7b-322edd86ae99",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "=New order from  {{ $('Code in JavaScript').item.json.name }}",
+        "emailType": "html",
+        "message": "=<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"UTF-8\" />\n  <title>New Order</title>\n</head>\n\n<body style=\"margin:0; padding:0; background:#f5f6f8; font-family:Arial, sans-serif;\">\n\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"padding:30px 0;\">\n    <tr>\n      <td align=\"center\">\n\n        <!-- Card -->\n        <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.08);\">\n\n          <!-- Header -->\n          <tr>\n            <td style=\"background:#111827; padding:22px; text-align:center;\">\n              <h2 style=\"margin:0; color:#ffffff; font-size:20px; letter-spacing:0.5px;\">\n                🍽️ New Order Received\n              </h2>\n            </td>\n          </tr>\n\n          <!-- Body -->\n          <tr>\n            <td style=\"padding:25px; color:#111827;\">\n\n              <p style=\"margin:0 0 20px 0; font-size:14px; color:#6b7280;\">\n                You have received a new customer order. Please find the details below.\n              </p>\n\n              <!-- Customer Info -->\n              <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:20px; font-size:14px;\">\n                <tr>\n                  <td style=\"padding:6px 0; color:#6b7280; width:160px;\">Customer Name</td>\n                  <td style=\"padding:6px 0; color:#111827; font-weight:600;\">\n                    {{ $('Code in JavaScript').item.json.name }}\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:6px 0; color:#6b7280;\">Phone</td>\n                  <td style=\"padding:6px 0; color:#111827;\">\n                    {{ $('Code in JavaScript').item.json.phone }}\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:6px 0; color:#6b7280;\">Address</td>\n                  <td style=\"padding:6px 0; color:#111827;\">\n                    {{ $('Code in JavaScript').item.json.address }}\n                  </td>\n                </tr>\n\n                <tr>\n                  <td style=\"padding:6px 0; color:#6b7280;\">Special Notes</td>\n                  <td style=\"padding:6px 0; color:#111827;\">\n                    {{ $('Code in JavaScript').item.json.special_info }}\n                  </td>\n                </tr>\n              </table>\n\n              <!-- Order Box -->\n              <div style=\"background:#f9fafb; border:1px solid #e5e7eb; border-radius:10px; padding:16px;\">\n\n                <p style=\"margin:0 0 8px 0; font-size:13px; color:#6b7280;\">\n                  Order Details\n                </p>\n\n                <div style=\"font-size:14px; color:#111827; font-weight:500;\">\n                  {{ $('Code in JavaScript').item.json.what_to_order }}\n                </div>\n\n              </div>\n\n              <!-- Footer note -->\n              <p style=\"margin-top:22px; font-size:12px; color:#9ca3af;\">\n                Please prepare the order and proceed with fulfillment.\n              </p>\n\n            </td>\n          </tr>\n\n          <!-- Footer -->\n          <tr>\n            <td style=\"background:#f3f4f6; text-align:center; padding:12px; font-size:11px; color:#9ca3af;\">\n              Automated notification system\n            </td>\n          </tr>\n\n        </table>\n\n      </td>\n    </tr>\n  </table>\n\n</body>\n</html>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1008,
+        432
+      ],
+      "id": "df257bd5-66b2-46cb-9946-950443b0d25a",
+      "name": "Create a draft",
+      "webhookId": "abe9dde1-01d7-41b8-accd-f282f5e6cc6b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "6HAxiaBkDf7JeRBA",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.wassenger.com/v1/messages?token=14864c3bbbc8ff8f9494c73fa52d56caa20f4c2d58967096af3ab5f6a9fa7ed185e49754b2503fc7",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"phone\": \"={{ $('Code in JavaScript').item.json.phone }}\",\n  \"message\": \"={{ $('AI Agent').item.json.output.replace(/\\n/g, '\\\\n') }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1008,
+        240
+      ],
+      "id": "4a9f6866-0629-4c83-9982-5e13c1fa2efb",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "65ebc019-a77a-45f5-9d06-01fed7235406",
+              "leftValue": "={{ $('Code in JavaScript').item.json.functionName }}",
+              "rightValue": "finalise_order",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        784,
+        432
+      ],
+      "id": "9a6c2edf-8b71-4a01-86bc-2538c9267424",
+      "name": "If"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Pinecone Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Pinecone Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Pinecone Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pinecone Vector Store1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Pinecone Vector Store1",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Create a draft",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "4013e0db-3c1b-49e0-bb99-ceacd99bc653",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "f84d20e610c0e6ca883ca3340e5032dcfe7009e088894ebc7a64ac407ed3b97c"
+  },
+  "id": "Bj3orxtHVOVNY35T",
+  "tags": []
+}
